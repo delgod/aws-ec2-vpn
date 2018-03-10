@@ -1,0 +1,294 @@
+---
+AWSTemplateFormatVersion: 2010-09-09
+Parameters:
+
+  MasterKeyName:
+    Default: mykola
+    Description: Key pair name
+    Type: AWS::EC2::KeyPair::KeyName
+
+  VpnUserName:
+    Type: String
+    Description: VPN Username
+
+  VpnPassword:
+    Type: String
+    Description: VPN Password
+    MinLength: 12
+    MaxLength: 32
+    NoEcho: true
+
+  VpnPreSharedKey:
+    Type: String
+    Description: VPN Pre Shared Key
+    MinLength: 12
+    MaxLength: 32
+    NoEcho: true
+
+Mappings:
+  RegionMap:
+    us-east-1:
+      x64: ami-97785bed
+
+Resources:
+
+  JSlaveRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref AWS::StackName
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+        - Effect: Allow
+          Action: sts:AssumeRole
+          Principal:
+            Service: ec2.amazonaws.com
+      Path: /
+      Policies:
+      - PolicyName: !Ref AWS::StackName
+        PolicyDocument:
+          Version: 2012-10-17
+          Statement:
+          - Effect: Allow
+            Resource: '*'
+            Action:
+            - ec2:CreateTags
+            - ec2:DeleteTags
+            - ec2:AssociateAddress
+            - ec2:DescribeInstances
+
+  JSlaveProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+        - !Ref JSlaveRole
+      InstanceProfileName: !Ref AWS::StackName
+
+  VPNVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.77.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      InstanceTenancy: default
+      Tags:
+      - Key: iit-billing-tag
+        Value: vpn
+
+  VPNInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+      - Key: iit-billing-tag
+        Value: vpn
+
+  VPNVPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPNVPC
+      InternetGatewayId: !Ref VPNInternetGateway
+
+  VPNSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPNVPC
+      CidrBlock: 10.77.0.0/24
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select
+        - 0
+        - Fn::GetAZs: ''
+      Tags:
+      - Key: iit-billing-tag
+        Value: vpn
+
+  VPNRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPNVPC
+      Tags:
+      - Key: iit-billing-tag
+        Value: vpn
+
+  VPNInternetRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VPNInternetGateway
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref VPNInternetGateway
+      RouteTableId: !Ref VPNRouteTable
+
+  SubnetARouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref VPNRouteTable
+      SubnetId: !Ref VPNSubnetA
+
+  VPNSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: SSH/VPN
+      GroupDescription: SSH/VPN traffic in, all traffic out.
+      VpcId: !Ref VPNVPC
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 22
+        ToPort: 22
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: 500
+        ToPort: 500
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: udp
+        FromPort: 500
+        ToPort: 500
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: udp
+        FromPort: 4500
+        ToPort: 4500
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: udp
+        FromPort: 1701
+        ToPort: 1701
+        CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+      - IpProtocol: -1
+        CidrIp: 0.0.0.0/0
+      Tags:
+      - Key: iit-billing-tag
+        Value: vpn
+
+  VPNInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !FindInMap [RegionMap, !Ref 'AWS::Region', x64]
+      IamInstanceProfile: !Ref JSlaveProfile
+      InstanceType: t2.nano
+      KeyName: mykola
+      SecurityGroupIds:
+      - !GetAtt VPNSecurityGroup.GroupId
+      SubnetId: !Ref VPNSubnetA
+      Monitoring: false
+      Tags:
+      - Key: iit-billing-tag
+        Value: vpn
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+
+          set -o xtrace
+
+          until yum makecache; do
+              sleep 1
+              echo try again
+          done
+          yum -y update
+          yum -y install --enablerepo=epel openswan xl2tpd
+
+          instance_id=$(wget -q -O - 'http://169.254.169.254/latest/meta-data/instance-id')
+          private_ip=$(wget -q -O - 'http://169.254.169.254/latest/meta-data/local-ipv4')
+
+          cat > /etc/ipsec.conf <<-EOF
+          	version 2.0
+          	config setup
+          	  dumpdir=/var/run/pluto/
+          	  nat_traversal=yes
+          	  virtual_private=%v4:10.0.0.0/8,%v4:192.168.0.0/16,%v4:172.16.0.0/12,%v4:25.0.0.0/8,%v6:fd00::/8,%v6:fe80::/10
+          	  oe=off
+          	  protostack=netkey
+          	  nhelpers=0
+          	  interfaces=%defaultroute
+          	conn vpnpsk
+          	  auto=add
+          	  left=$private_ip
+          	  leftid=${VpnIp}
+          	  leftsubnet=$private_ip/32
+          	  leftnexthop=%defaultroute
+          	  leftprotoport=17/1701
+          	  rightprotoport=17/%any
+          	  right=%any
+          	  rightsubnetwithin=0.0.0.0/0
+          	  forceencaps=yes
+          	  authby=secret
+          	  pfs=no
+          	  type=transport
+          	  auth=esp
+          	  ike=3des-sha1
+          	  phase2alg=3des-sha1
+          	  dpddelay=30
+          	  dpdtimeout=86400
+          	  dpdaction=clear
+          EOF
+          cat > /etc/ipsec.secrets <<-EOF
+          	${VpnIp}  %any  : PSK '${VpnPreSharedKey}'
+          EOF
+          cat > /etc/xl2tpd/xl2tpd.conf <<-EOF
+          	[global]
+          	port = 1701
+          	[lns default]
+          	ip range = 192.168.42.10-192.168.42.250
+          	local ip = 192.168.42.1
+          	require chap = yes
+          	refuse pap = yes
+          	require authentication = yes
+          	name = l2tpd
+          	pppoptfile = /etc/ppp/options.xl2tpd
+          	length bit = yes
+          EOF
+          cat > /etc/ppp/options.xl2tpd <<-EOF
+          	ipcp-accept-local
+          	ipcp-accept-remote
+          	ms-dns 8.8.8.8
+          	ms-dns 8.8.4.4
+          	noccp
+          	auth
+          	crtscts
+          	idle 1800
+          	mtu 1280
+          	mru 1280
+          	lock
+          	connect-delay 5000
+          EOF
+          cat > /etc/ppp/chap-secrets <<-EOF
+          	${VpnUserName}       l2tpd   ${VpnPassword}   *
+          EOF
+
+          iptables -t nat -A POSTROUTING -s 192.168.42.0/24 -o eth0 -j MASQUERADE
+          echo 1 > /proc/sys/net/ipv4/ip_forward
+
+          /etc/init.d/ipsec restart
+          /etc/init.d/xl2tpd restart
+
+          aws ec2 associate-address \
+              --region $(curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone | sed -e 's/[a-z]$//') \
+              --instance-id $(curl -s http://169.254.169.254/latest/meta-data/instance-id) \
+              --allocation-id ${VpnIp.AllocationId} \
+              --allow-reassociation
+
+          echo "{ \"Status\": \"SUCCESS\", \"Reason\": \"complete\", \"UniqueId\": \"$instance_id\", \"Data\": \"complete\" }" > /root/status.json
+          curl -T /root/status.json '${WaitHandle}' || :
+          curl -T /root/status.json '${WaitHandle}' || :
+          curl -T /root/status.json '${WaitHandle}' || :
+
+  WaitHandle:
+    Type: AWS::CloudFormation::WaitConditionHandle
+    Properties: {}
+
+  WaitCondition:
+    Type: AWS::CloudFormation::WaitCondition
+    DependsOn:
+      - VPNInstance
+    Properties:
+      Handle: !Ref WaitHandle
+      Count: 1
+      Timeout: 900
+
+  VpnIp:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+Outputs:
+  IP:
+    Value: !Ref VpnIp
+    Description: Elastic IP of VPN Instance.

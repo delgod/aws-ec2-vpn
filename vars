@@ -1,0 +1,7 @@
+region=us-east-1
+ssh_key=mykola
+profile=my
+stack_name=aws-ec2-vpn
+vpn_pre_shared_key=MySuperSecretPreSharedKey
+vpn_username=vpnuser
+vpn_password=TheVPNUserPassword
