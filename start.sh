@@ -5,10 +5,10 @@
 set -o errexit
 set -o xtrace
 
-if [ -z "${vpn_pre_shared_key// }" -o -z "${vpn_username// }" -o -z "${vpn_username// }" ]; then
+if [ -z "${vpn_pre_shared_key// }" -o -z "${vpn_username// }" -o -z "${vpn_password// }" ]; then
     vpn_pre_shared_key=$1
     vpn_username=$2
-    vpn_username=$3
+    vpn_password=$3
 fi
 
 aws cloudformation create-stack \

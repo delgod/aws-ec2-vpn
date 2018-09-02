@@ -2,12 +2,12 @@
 
 Set up a VPN server on an AWS EC2 Instance via a single, self contained, Cloud Formation template.
 
-See [aws-ec2-vpn.yml](https://github.com/weavenet/aws-ec2-vpn/blob/master/aws-ec2-vpn.yml) for raw template.
+See [aws-ec2-vpn.yml](https://github.com/delgod/aws-ec2-vpn/blob/master/aws-ec2-vpn.yml) for raw template.
 
 ## Setup via AWS Console
 
 Follow the [AWS Cloud Formation Guide](http://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/cfn-console-create-stack.html)
-to create a new Cloud Formation Stack from the [aws-ec2-vpn.yml](https://github.com/weavenet/aws-ec2-vpn/blob/master/aws-ec2-vpn.yml) template.
+to create a new Cloud Formation Stack from the [aws-ec2-vpn.yml](https://github.com/delgod/aws-ec2-vpn/blob/master/aws-ec2-vpn.yml) template.
 
 ## Setup via CLI
 
@@ -15,16 +15,16 @@ You must have the [aws-cli](https://aws.amazon.com/cli/) installed and available
 
 Additionally, you must set your default AWS credentials to a user with permissions to setup a VPC and launch EC2 instances.
 
-Clone down this repo and execute the **setup.sh** script with the following input.
+Clone down this repo and execute the **start.sh** script with the following input.
 
 ```shell
-$ bash setup.sh YOUR_VPN_PRE_SHARED_KEY YOUR_VPN_USERNAME YOUR_VPN_PASSWORD
+$ bash start.sh YOUR_VPN_PRE_SHARED_KEY YOUR_VPN_USERNAME YOUR_VPN_PASSWORD
 ```
 
 Once the setup is complete, the script will return the persistent EIP of the Instance. For example:
 
 ```shell
-$ bash setup.sh MySuperSecretPreSharedKey vpnuser TheVPNUserPassword
+$ bash start.sh MySuperSecretPreSharedKey vpnuser TheVPNUserPassword
 VPN Setup in progress.
 VPN Setup complete. IP address is '35.164.187.145'.
 ```
@@ -45,7 +45,7 @@ Click Create.
 
 ![image1](https://raw.githubusercontent.com/weavenet/aws-ec2-vpn/master/images/image1.png)
 
-Add the IP address, which was output from the setup.sh script above, as the **Server Address**.
+Add the IP address, which was output from the start.sh script above, as the **Server Address**.
 
 The user you specified, as **YOUR_VPN_USERNAME** in the script above, as the **Account Name**.
 
@@ -80,6 +80,6 @@ Ensure your traffic coming from the VPN IP via [What Is My IP](https://www.googl
 
 The only charge will be for the EC2 instance hours, currently set to t2.nano, and network bandwidth.
 
-At the time of this writing the instance hours cost under $5.00 USD per month in us-west-2 if the VPN is ran continuously.
+At the time of this writing the instance hours cost from $1.50 till 3.00 USD per month in eu-central-1 if the VPN is ran continuously.
 
-See [AWS On Demand Pricing](https://aws.amazon.com/ec2/pricing/on-demand/) for current pricing.
+See [Amazon EC2 Spot Instances Pricing](https://aws.amazon.com/ec2/spot/pricing/) for current pricing.
